@@ -1,28 +1,33 @@
 package org.jaden.sequencer.executor
 
-import akka.actor.Actor
-import akka.pattern.pipe
-import org.jaden.sequencer.interpreter.{Action, SimpleAction}
-import org.jaden.sequencer.state.Done
+import akka.actor.ActorLogging
+import akka.persistence.fsm.PersistentFSM
+import org.jaden.sequencer.interpreter.{Action, NotifyDone, SimpleAction}
+import org.jaden.sequencer.state._
 
 import scala.concurrent.Future
 
-class SimpleActionActor() extends Actor {
+class SimpleActionActor(actionId: String) extends PersistentFSM[State, Data, Action] with ActorLogging {
+
   import context.dispatcher
 
-  override def receive: Receive = {
-    case SimpleAction(id, name, payload) =>
-      val future: Future[Done] = Future {
+  startWith(Starting, Uninitialized)
+
+  when(Starting) {
+    case Event(SimpleAction(id, name, payload), Uninitialized) => {
+      log.info(s"Action $actionId received starting event")
+      Future {
         Thread.sleep(1000)
-        Done(id)
+        self ! NotifyDone(actionId)
       }
+      goto(Started)
+    }
+  }
 
-      future pipeTo self
-
-      println(s"Sender: $sender")
-    case Done(actionId) =>
-      println(s"Action completed for $actionId, sending back to $sender")
-      context.parent forward Done(actionId)
-      context.stop(self)
+  when(Started) {
+    case Event(NotifyDone(id), Uninitialized) =>
+      log.info(s"Action $actionId done")
+      context.parent ! NotifyDone(actionId)
+      stop()
   }
 }

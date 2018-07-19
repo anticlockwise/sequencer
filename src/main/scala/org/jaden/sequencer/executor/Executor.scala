@@ -6,12 +6,12 @@ import org.jaden.sequencer.interpreter.{Action, ParallelAction, SequentialAction
 object Executor {
   def getActionActor(action: Action): Props = {
     action match {
-      case SimpleAction(_, _, _) =>
-        Props(new SimpleActionActor)
-      case ParallelAction(_, _) =>
-        Props(new ParallelActionActor)
-      case SequentialAction(_, _) =>
-        Props(new SequentialActionActor)
+      case SimpleAction(id, _, _) =>
+        Props(new SimpleActionActor(id))
+      case ParallelAction(id, _) =>
+        Props(new ParallelActionActor(id))
+      case SequentialAction(id, _) =>
+        Props(new SequentialActionActor(id))
       case _ =>
         throw new RuntimeException(s"Action not recognized: $action")
     }

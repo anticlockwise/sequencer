@@ -1,7 +1,5 @@
 package org.jaden.sequencer
 
-import java.util.UUID
-
 import akka.actor.ActorSystem
 import org.jaden.sequencer.executor.Executor
 import org.jaden.sequencer.interpreter.{ParallelAction, SequentialAction, SimpleAction}

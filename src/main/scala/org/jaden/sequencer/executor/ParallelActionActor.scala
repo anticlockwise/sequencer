@@ -1,28 +1,39 @@
 package org.jaden.sequencer.executor
 
-import akka.actor.{Actor, Props}
-import org.jaden.sequencer.interpreter.ParallelAction
-import org.jaden.sequencer.state.{Done, Started, State}
+import akka.actor.FSM
+import akka.persistence.fsm.PersistentFSM
+import org.jaden.sequencer.interpreter.{Action, NotifyDone, ParallelAction}
+import org.jaden.sequencer.state._
 
-class ParallelActionActor() extends Actor {
-  var actionStates = Map.empty[String, State]
-  var currentAction: String = null;
+import scala.reflect.ClassTag
 
-  override def receive: Receive = {
-    case ParallelAction(id, actions) =>
-      currentAction = id
-      println("Executing parallel actions")
+class ParallelActionActor(actionId: String) extends PersistentFSM[State, Data, Action] {
+  startWith(Starting, Uninitialized)
+
+  when(Starting) {
+    case Event(ParallelAction(id, actions), Uninitialized) =>
+      log.info(s"Action $actionId received starting event")
       actions.foreach(action => {
         val executor = Executor.getActionActor(action)
-        context.actorOf(executor) ! action
-        actionStates += action.getId() -> Started(action.getId())
+        context.actorOf(executor, executor.actorClass().getName() + action.getId()) ! action
       })
-    case Done(actionId) =>
-      actionStates += actionId -> Done(actionId)
-      val allDone = actionStates.values.forall(state => state.isInstanceOf[Done])
+      goto(Started) replying StartedActions(actions, Map.empty)
+  }
+
+  when(Started) {
+    case Event(NotifyDone(id), StartedActions(actions, states)) =>
+      val newStates = states + (id -> Done)
+      val allDone = states.values.forall(s => s == Done) && (newStates.size == actions.size)
       if (allDone) {
-        context.parent ! Done(currentAction)
-        context.stop(self)
+        log.info(s"Action $actionId done")
+        context.parent ! NotifyDone(actionId)
+        stop()
+      } else {
+        stay() replying StartedActions(actions, newStates)
       }
   }
+
+  override def applyEvent(domainEvent: Action, currentData: Data): Data = ???
+
+  override def persistenceId: String = ???
 }

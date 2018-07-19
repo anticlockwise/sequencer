@@ -1,31 +1,36 @@
 package org.jaden.sequencer.executor
 
-import akka.actor.Actor
-import org.jaden.sequencer.interpreter.{Action, SequentialAction}
-import org.jaden.sequencer.state.Done
+import akka.actor.FSM
+import org.jaden.sequencer.interpreter.{NotifyDone, SequentialAction}
+import org.jaden.sequencer.state._
 
-class SequentialActionActor() extends Actor {
-  var currentAction: String = null
-  var actionSequence: Seq[Action] = Seq.empty[Action]
+class SequentialActionActor(actionId: String) extends FSM[State, Data] {
+  startWith(Starting, Uninitialized)
 
-  override def receive: Receive = {
-    case SequentialAction(id, actions) =>
-      currentAction = id
-      println("Executing sequential actions")
-      actionSequence = actions
-      val firstAction: Action = actionSequence.head
-      val executorProps = Executor.getActionActor(firstAction)
-      context.actorOf(executorProps) ! firstAction
-    case Done(actionId) =>
-      val doneIndex = actionSequence.indexWhere(action => action.getId() == actionId)
-      println(s"Done index: $doneIndex")
-      if (doneIndex >= actionSequence.length - 1 || doneIndex < 0) {
-        context.parent ! Done(currentAction)
-        context.stop(self)
+  when(Starting) {
+    case Event(SequentialAction(id, actions), Uninitialized) =>
+      log.info(s"Action $actionId received starting event")
+      val currentAction = actions.head
+      val executor = Executor.getActionActor(currentAction)
+      context.actorOf(executor, executor.actorClass().getName() + currentAction.getId()) ! currentAction
+      goto(Started) using StartedActions(actions, Map.empty)
+  }
+
+  when(Started) {
+    case Event(NotifyDone(id), StartedActions(actions, states)) =>
+      val newStates = states + (id -> Done)
+      val doneIndex = actions.indexWhere(action => action.getId() == id)
+      if (doneIndex >= actions.length - 1 || doneIndex < 0) {
+        log.info(s"Action $actionId done")
+        context.parent ! NotifyDone(actionId)
+        stop()
       } else {
-        val nextAction = actionSequence(doneIndex + 1)
+        val nextAction = actions(doneIndex + 1)
         val executorProps = Executor.getActionActor(nextAction)
         context.actorOf(executorProps) ! nextAction
+        stay() using StartedActions(actions, newStates)
       }
   }
+
+  initialize()
 }
